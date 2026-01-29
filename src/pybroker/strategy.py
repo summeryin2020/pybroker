@@ -102,6 +102,8 @@ class Execution(NamedTuple):
             execution of ``fn``.
         indicator_names: Names of :class:`pybroker.indicator.Indicator`\ s
             used for execution of ``fn``.
+        args: Additional positional arguments for ``fn``.
+        kwargs: Additional keyword arguments for ``fn``.
     """
 
     id: int
@@ -109,6 +111,8 @@ class Execution(NamedTuple):
     fn: Optional[Callable[[ExecContext], None]]
     model_names: frozenset[str]
     indicator_names: frozenset[str]
+    args: tuple[Any, ...] = tuple()
+    kwargs: tuple[tuple[str, Any], ...] = tuple()
 
 
 class BacktestMixin:
@@ -186,6 +190,8 @@ class BacktestMixin:
         pending_order_scope = PendingOrderScope()
         exec_ctxs: dict[str, ExecContext] = {}
         exec_fns: dict[str, Callable[[ExecContext], None]] = {}
+        exec_args: dict[str, tuple[Any, ...]] = {}
+        exec_kwargs: dict[str, tuple[tuple[str, Any], ...]] = {}
         for sym in test_syms:
             for exec in executions:
                 if sym not in exec.symbols:
@@ -203,6 +209,8 @@ class BacktestMixin:
                     sym_end_index=sym_end_index,
                     session=sessions[sym],
                 )
+                exec_args[sym] = exec.args
+                exec_kwargs[sym] = exec.kwargs
                 if exec.fn is not None:
                     exec_fns[sym] = exec.fn
         sym_exec_dates = {
@@ -311,7 +319,11 @@ class BacktestMixin:
                 before_exec_fn(active_ctxs)
             for sym, ctx in active_ctxs.items():
                 if sym in exec_fns:
-                    exec_fns[sym](ctx)
+                    exec_fns[sym](
+                        ctx,
+                        *exec_args.get(sym, ()),
+                        **dict(exec_kwargs.get(sym, ())),
+                    )
             if after_exec_fn is not None and active_ctxs:
                 after_exec_fn(active_ctxs)
             for ctx in active_ctxs.values():
@@ -686,14 +698,14 @@ class WalkforwardMixin:
                         (dates[date_col] >= window_dates[start])
                         & (dates[date_col] <= window_dates[end - 1])
                     ]
-                    test_idx = test_idx.index.to_numpy()
+                    test_idx = test_idx.index.to_numpy(copy=True)
                     yield WalkforwardWindow(np.array(tuple()), test_idx)
                 else:
                     train_idx = dates[
                         (dates[date_col] >= window_dates[start])
                         & (dates[date_col] <= window_dates[end - 1])
                     ]
-                    train_idx = train_idx.index.to_numpy()
+                    train_idx = train_idx.index.to_numpy(copy=True)
                     if shuffle:
                         np.random.shuffle(train_idx)
                     yield WalkforwardWindow(train_idx, np.array(tuple()))
@@ -719,8 +731,8 @@ class WalkforwardMixin:
                 (dates[date_col] >= window_dates[test_start])
                 & (dates[date_col] <= window_dates[test_end])
             ]
-            train_idx = train_idx.index.to_numpy()
-            test_idx = test_idx.index.to_numpy()
+            train_idx = train_idx.index.to_numpy(copy=True)
+            test_idx = test_idx.index.to_numpy(copy=True)
             if shuffle:
                 np.random.shuffle(train_idx)
             yield WalkforwardWindow(train_idx, test_idx)
@@ -761,8 +773,8 @@ class WalkforwardMixin:
                     (dates[date_col] > window_dates[test_start])
                     & (dates[date_col] <= window_dates[test_end])
                 ]
-                train_idx = train_idx.index.to_numpy()
-                test_idx = test_idx.index.to_numpy()
+                train_idx = train_idx.index.to_numpy(copy=True)
+                test_idx = test_idx.index.to_numpy(copy=True)
                 if shuffle:
                     np.random.shuffle(train_idx)
                 yield WalkforwardWindow(train_idx, test_idx)
@@ -896,6 +908,8 @@ class Strategy(
         symbols: Union[str, Iterable[str]],
         models: Optional[Union[ModelSource, Iterable[ModelSource]]] = None,
         indicators: Optional[Union[Indicator, Iterable[Indicator]]] = None,
+        *args: Any,
+        **kwargs: Any,
     ):
         r"""Adds an execution to backtest.
 
@@ -910,6 +924,8 @@ class Strategy(
             indicators: :class:`Iterable` of
                 :class:`pybroker.indicator.Indicator`\ s to compute for
                 backtesting.
+            args: Positional arguments passed to ``fn``.
+            kwargs: Keyword arguments passed to ``fn``.
         """
         symbols = (
             frozenset((symbols,))
@@ -978,6 +994,8 @@ class Strategy(
                 fn=fn,
                 model_names=model_names,
                 indicator_names=ind_names,
+                args=args,
+                kwargs=tuple(sorted(kwargs.items())),
             )
         )
 
@@ -1030,13 +1048,14 @@ class Strategy(
         between_time: Optional[tuple[str, str]] = None,
         days: Optional[Union[str, Day, Iterable[Union[str, Day]]]] = None,
         lookahead: int = 1,
-        train_size: int = 0,
+        train_size: float = 0,
         shuffle: bool = False,
         calc_bootstrap: bool = False,
         disable_parallel: bool = False,
         warmup: Optional[int] = None,
         portfolio: Optional[Portfolio] = None,
         adjust: Optional[Any] = None,
+        seed: Optional[int] = 42,
     ) -> TestResult:
         """Backtests the trading strategy by running executions that were added
         with :meth:`.add_execution`.
@@ -1089,6 +1108,7 @@ class Strategy(
                 backtests.
             adjust: The type of adjustment to make to the
                 :class:`pybroker.data.DataSource`.
+            seed: Random seed used for reproducibility. Defaults to ``42``.
 
         Returns:
             :class:`.TestResult` containing portfolio balances, order
@@ -1109,6 +1129,7 @@ class Strategy(
             warmup=warmup,
             portfolio=portfolio,
             adjust=adjust,
+            seed=seed,
         )
 
     def walkforward(
@@ -1127,6 +1148,7 @@ class Strategy(
         warmup: Optional[int] = None,
         portfolio: Optional[Portfolio] = None,
         adjust: Optional[Any] = None,
+        seed: Optional[int] = 42,
     ) -> TestResult:
         """Backtests the trading strategy using `Walkforward Analysis
         <https://www.pybroker.com/en/latest/notebooks/6.%20Training%20a%20Model.html#Walkforward-Analysis>`_.
@@ -1185,6 +1207,7 @@ class Strategy(
                 backtests.
             adjust: The type of adjustment to make to the
                 :class:`pybroker.data.DataSource`.
+            seed: Random seed used for reproducibility. Defaults to ``42``.
 
         Returns:
             :class:`.TestResult` containing portfolio balances, order
@@ -1249,7 +1272,6 @@ class Strategy(
                     self._config.initial_cash,
                     self._config.fee_mode,
                     self._config.fee_amount,
-                    self._config.subtract_fees,
                     self._fractional_shares_enabled(),
                     self._config.position_mode,
                     self._config.max_long_positions,
@@ -1279,6 +1301,7 @@ class Strategy(
                 calc_bootstrap,
                 train_only,
                 signals if self._config.return_signals else None,
+                seed,
             )
         finally:
             scope.unfreeze_data_cols()
@@ -1327,8 +1350,7 @@ class Strategy(
                         DataCol.DATE.value
                     ].values
                     if len(sym_dates):
-                        sym_dates.sort()
-                        exit_dates[sym] = sym_dates[-1]
+                        exit_dates[sym] = sym_dates.max()
         signals: dict[str, pd.DataFrame] = {}
         for train_idx, test_idx in self.walkforward_split(
             df=df,
@@ -1474,6 +1496,7 @@ class Strategy(
         calc_bootstrap: bool,
         train_only: bool,
         signals: Optional[dict[str, pd.DataFrame]],
+        seed: Optional[int],
     ) -> TestResult:
         if train_only:
             return TestResult(
@@ -1552,6 +1575,7 @@ class Strategy(
             bootstrap_sample_size=self._config.bootstrap_sample_size,
             bootstrap_samples=self._config.bootstrap_samples,
             bars_per_year=self._config.bars_per_year,
+            seed=seed,
         )
         metrics = [
             (k, v)

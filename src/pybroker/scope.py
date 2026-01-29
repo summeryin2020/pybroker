@@ -177,6 +177,10 @@ class StaticScope:
         self._params[name] = value
         return value
 
+    def clear_params(self):
+        """Clears all global parameters."""
+        self._params.clear()
+
     @classmethod
     def instance(cls) -> "StaticScope":
         """Returns singleton instance."""
@@ -218,6 +222,11 @@ def unregister_columns(names: Union[str, Iterable[str]], *args):
 def param(name: str, value: Optional[Any] = _EMPTY_PARAM) -> Optional[Any]:
     """Get or set a global parameter."""
     return StaticScope.instance().param(name, value)
+
+
+def clear_params():
+    """Clears all global parameters."""
+    StaticScope.instance().clear_params()
 
 
 class ColumnScope:
@@ -273,7 +282,7 @@ class ColumnScope:
                 self._sym_cols[symbol][name] = None
                 result[name] = None
                 continue
-            array = sym_df[name].to_numpy()
+            array = sym_df[name].to_numpy(copy=True)
             self._sym_cols[symbol][name] = array
             result[name] = array[:end_index]
         return result
@@ -363,7 +372,9 @@ class IndicatorScope:
         if ind_sym not in self._indicator_data:
             raise ValueError(f"Indicator {name!r} not found for {symbol}.")
         ind_series = self._indicator_data[ind_sym]
-        ind_data = ind_series[ind_series.index.isin(self._filter_dates)].values
+        ind_data = ind_series[
+            ind_series.index.isin(self._filter_dates)
+        ].to_numpy(copy=True)
         self._sym_inds[ind_sym] = ind_data
         return ind_data[:end_index]
 

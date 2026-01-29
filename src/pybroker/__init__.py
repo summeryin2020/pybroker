@@ -70,6 +70,7 @@ from pybroker.scope import (
     disable_progress_bar as disable_progress_bar,
     enable_progress_bar as enable_progress_bar,
     param as param,
+    clear_params as clear_params,
     register_columns as register_columns,
     unregister_columns as unregister_columns,
 )
@@ -87,4 +88,4 @@ from pybroker.vect import (
 # https://github.com/numba/numba/issues/8940
 from numba.np.unsafe import ndarray
 
-__version__ = "1.2.11"
+__version__ = "1.2.12"

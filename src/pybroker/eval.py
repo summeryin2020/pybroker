@@ -840,6 +840,7 @@ class EvaluateMixin:
         bootstrap_sample_size: int,
         bootstrap_samples: int,
         bars_per_year: Optional[int],
+        seed: Optional[int] = 42,
     ) -> EvalResult:
         """Computes evaluation metrics.
 
@@ -854,15 +855,18 @@ class EvaluateMixin:
                 to annualize evaluation metrics. For example, a value of
                 ``252`` would be used to annualize the Sharpe Ratio for daily
                 returns.
+            seed: Random seed for reproducibility. Defaults to 42.
 
         Returns:
             :class:`.EvalResult` containing evaluation metrics.
         """
-        market_values = portfolio_df["market_value"].to_numpy()
-        fees = portfolio_df["fees"].to_numpy()
+        if seed is not None:
+            np.random.seed(seed)
+        market_values = portfolio_df["market_value"].to_numpy(copy=True)
+        fees = portfolio_df["fees"].to_numpy(copy=True)
         bar_returns = self._calc_bar_returns(portfolio_df)
         bar_return_dates = bar_returns.index.to_series().reset_index(drop=True)
-        bar_returns = bar_returns.to_numpy()
+        bar_returns = bar_returns.to_numpy(copy=True)
         bar_changes = self._calc_bar_changes(portfolio_df)
         if (
             not len(market_values)
@@ -870,13 +874,13 @@ class EvaluateMixin:
             or not len(bar_changes)
         ):
             return EvalResult(EvalMetrics(), None)
-        pnls = trades_df["pnl"].to_numpy()
-        return_pcts = trades_df["return_pct"].to_numpy()
-        bars = trades_df["bars"].to_numpy()
+        pnls = trades_df["pnl"].to_numpy(copy=True)
+        return_pcts = trades_df["return_pct"].to_numpy(copy=True)
+        bars = trades_df["bars"].to_numpy(copy=True)
         winning_trades = trades_df[trades_df["pnl"] > 0]
-        winning_bars = winning_trades["bars"].to_numpy()
+        winning_bars = winning_trades["bars"].to_numpy(copy=True)
         losing_trades = trades_df[trades_df["pnl"] < 0]
-        losing_bars = losing_trades["bars"].to_numpy()
+        losing_bars = losing_trades["bars"].to_numpy(copy=True)
         largest_win = winning_trades[
             winning_trades["pnl"] == winning_trades["pnl"].max()
         ]
@@ -943,6 +947,8 @@ class EvaluateMixin:
             drawdown=dd_result.metrics,
         )
         logger.calc_bootstrap_metrics_completed()
+        if seed is not None:
+            np.random.seed()
         return EvalResult(metrics, bootstrap)
 
     def _calc_bar_returns(self, df: pd.DataFrame) -> pd.Series:
@@ -952,7 +958,7 @@ class EvaluateMixin:
 
     def _calc_bar_changes(self, df: pd.DataFrame) -> NDArray[np.float64]:
         changes = df["market_value"] - df["market_value"].shift(1)
-        return changes.dropna().to_numpy()
+        return changes.dropna().to_numpy(copy=True)
 
     def _calc_eval_metrics(
         self,
